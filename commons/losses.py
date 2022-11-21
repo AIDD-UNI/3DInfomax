@@ -230,8 +230,7 @@ class NTXentMultiplePositives(_Loss):
         QMugs: 3
         '''
         batch_size, metric_dim = z1.size()
-        z2 = z2.view(batch_size, -1, metric_dim)  # [batch_size, num_conformers, metric_dim]
-        z2 = z2.view(batch_size, -1, metric_dim)  # [batch_size, num_conformers, metric_dim]
+        z2 = z2.view(batch_size, -1, metric_dim)  # z2: [batch_size, num_conformers, metric_dim]
 
         sim_matrix = torch.einsum('ik,juk->iju', z1, z2)  # [batch_size, batch_size, num_conformers]
 
