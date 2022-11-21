@@ -259,6 +259,78 @@ class NTXentMultiplePositives(_Loss):
         return loss
 
 
+class NTXentMultiplePositives_WeightVersion(_Loss):
+    '''
+        Normalized Temperature-scaled Cross Entropy Loss from SimCLR paper
+        Args:
+            z1, z2: Tensor of shape [batch_size, z_dim]
+            tau: Float. Usually in (0,1].
+            norm: Boolean. Whether to apply normlization.
+        '''
+
+    def __init__(self, norm: bool = True, tau: float = 0.5, uniformity_reg=0, variance_reg=0, covariance_reg=0,
+                 conformer_variance_reg=0) -> None:
+        super(NTXentMultiplePositives_WeightVersion, self).__init__()
+        self.norm = norm
+        self.tau = tau
+        self.uniformity_reg = uniformity_reg
+        self.variance_reg = variance_reg
+        self.covariance_reg = covariance_reg
+        self.conformer_variance_reg = conformer_variance_reg
+
+    def forward(self, z1, z2, weight, **kwargs) -> Tensor:
+        """
+        :param z1: bsz, metric dim
+        :param z2: bsz, n_conformers, metric dim
+        :param weight: bsz, n_conformers (each conformer has a weight)
+        GEOM: 1-20
+        QMugs: 3
+        """
+        batch_size, metric_dim = z1.size()
+        z2 = z2.view(batch_size, -1, metric_dim)  # z2: [batch_size, num_conformers, metric_dim]
+
+        # matrix_z1 has grad w.r.t. z1, matrix_z2 has grad w.r.t. z2
+        sim_matrix_z1 = torch.einsum('ik,juk->iju', z1, z2.detach())  # [batch_size, batch_size, num_conformers]
+        sim_matrix_z2 = torch.einsum('ik,juk->iju', z1.detach(), z2)  # [batch_size, batch_size, num_conformers]
+
+        if self.norm:
+            z1_abs = z1.norm(dim=1)
+            z2_abs = z2.norm(dim=2).detach()
+            sim_matrix_z1 = sim_matrix_z1 / torch.einsum('i,ju->iju', z1_abs, z2_abs)
+
+            z1_abs = z1.norm(dim=1).detach()
+            z2_abs = z2.norm(dim=2)
+            sim_matrix_z2 = sim_matrix_z2 / torch.einsum('i,ju->iju', z1_abs, z2_abs)
+
+        sim_matrix_z1 = torch.exp(sim_matrix_z1 / self.tau)  # [batch_size, batch_size, num_conformers]
+        sim_matrix_z2 = torch.exp(sim_matrix_z2 / self.tau)  # [batch_size, batch_size, num_conformers]
+        sim_matrix_z2_weighted = sim_matrix_z2 * weight.repeat(batch_size, 1, 1)
+
+        sim_matrix_z1 = sim_matrix_z1.sum(dim=2)  # [batch_size, batch_size]
+        pos_sim_z1 = torch.diagonal(sim_matrix_z1)  # [batch_size]
+        loss_z1 = pos_sim_z1 / (sim_matrix_z1.sum(dim=1) - pos_sim_z1)
+        loss_z1 = - torch.log(loss_z1).mean()
+
+        sim_matrix_z2_weighted = sim_matrix_z2_weighted.sum(dim=2)  # [batch_size, batch_size]
+        pos_sim_z2 = torch.diagonal(sim_matrix_z2_weighted)  # [batch_size]
+        loss_z2 = pos_sim_z2 / (sim_matrix_z2_weighted.sum(dim=1) - pos_sim_z2)
+        loss_z2 = - torch.log(loss_z2).mean()
+
+        loss = loss_z1 + loss_z2
+
+        if self.variance_reg > 0:
+            loss += self.variance_reg * (std_loss(z1) + std_loss(z2))
+        if self.conformer_variance_reg > 0:
+            std = torch.sqrt(z2.var(dim=1) + 1e-04)
+            std_conf_loss = torch.mean(torch.relu(1 - std))
+            loss += self.conformer_variance_reg * std_conf_loss
+        if self.covariance_reg > 0:
+            loss += self.covariance_reg * (cov_loss(z1) + cov_loss(z2))
+        if self.uniformity_reg > 0:
+            loss += self.uniformity_reg * uniformity_loss(z1, z2)
+        return loss
+
+
 class KLDivergenceMultiplePositives(_Loss):
     '''
         Normalized Temperature-scaled Cross Entropy Loss from SimCLR paper
