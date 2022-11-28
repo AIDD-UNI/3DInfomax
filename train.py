@@ -21,7 +21,7 @@ from datasets.esol_geomol_featurization_of_qm9 import ESOLGeomolQM9Featurization
 from datasets.file_loader_drugs import FileLoaderDrugs
 from datasets.file_loader_qm9 import FileLoaderQM9
 from datasets.geom_drugs_dataset import GEOMDrugs
-from datasets.geom_qm9_dataset import GEOMqm9
+from datasets.geom_qm9_dataset import GEOMqm9, GEOMqm9_weighted
 from datasets.geomol_geom_qm9_dataset import QM9GeomolFeatDataset
 from datasets.lipo_geomol_feat import LIPOGeomol
 from datasets.lipo_geomol_featurization_of_qm9 import LIPOGeomolQM9Featurization
@@ -85,7 +85,7 @@ def parse_arguments():
     p.add_argument('--minimum_epochs', type=int, default=0, help='minimum numer of epochs to run')
     p.add_argument('--dataset', type=str, default='qm9', help='[qm9, zinc, drugs, geom_qm9, molhiv]')
     p.add_argument('--num_train', type=int, default=-1, help='n samples of the model samples to use for train')
-    p.add_argument('--seed', type=int, default=123, help='seed for reproducibility')
+    p.add_argument('--seed', type=int, default=42, help='seed for reproducibility')
     p.add_argument('--num_val', type=int, default=None, help='n samples of the model samples to use for validation')
     p.add_argument('--multithreaded_seeds', type=list, default=[],
                    help='if this is non empty, multiple threads will be started, training the same model but with the different seeds')
@@ -274,7 +274,7 @@ def train(args):
         return train_zinc(args, device, metrics_dict)
     elif args.dataset == 'qmugs':
         return train_geom(args, device, metrics_dict)
-    elif args.dataset == 'drugs' or args.dataset == 'geom_qm9' or args.dataset == 'qm9_geomol_feat' or args.dataset == 'file_loader_drugs' or args.dataset == 'file_loader_qm9':
+    elif args.dataset == 'drugs' or args.dataset == 'geom_qm9' or args.dataset == 'qm9_geomol_feat' or args.dataset == 'file_loader_drugs' or args.dataset == 'file_loader_qm9' or args.dataset == 'geom_qm9_weighted':
         return train_geom(args, device, metrics_dict)
     elif args.dataset == 'qm9_geomol':
         return train_qm9_geomol_featurization(args, device, metrics_dict)
@@ -490,6 +490,8 @@ def train_geom(args, device, metrics_dict):
         dataset = GEOMDrugs
     elif args.dataset == 'geom_qm9':
         dataset = GEOMqm9
+    elif args.dataset == 'geom_qm9_weighted':
+        dataset = GEOMqm9_weighted
     elif args.dataset == 'qmugs':
         dataset = QMugsDataset
     elif args.dataset == 'qm9_geomol_feat':
@@ -503,7 +505,7 @@ def train_geom(args, device, metrics_dict):
     all_idx = get_random_indices(len(all_data), args.seed_data)
     if args.dataset == 'drugs':
         model_idx = all_idx[:280000]  # 304293 in all data
-    elif args.dataset in ['geom_qm9', 'qm9_geomol_feat']:
+    elif args.dataset in ['geom_qm9', 'qm9_geomol_feat', 'geom_qm9_weighted']:
         model_idx = all_idx[:100000]
     elif args.dataset == 'qmugs':
         model_idx = all_idx[:620000]
