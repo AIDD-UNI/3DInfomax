@@ -419,15 +419,16 @@ class GEOMqm9_weighted(Dataset):
 
         self.target_types = ['ensembleenergy', 'ensembleentropy', 'ensemblefreeenergy', 'lowestenergy', 'poplowestpct',
                              'temperature', 'uniqueconfs']
+
+        self.num_conformers = num_conformers
         self.directory = '/sharefs/healthshare/yuancheng/datasets/rdkit_folder'
-        self.processed_file = 'geom_qm9_weighted_processed.pt'
+        self.processed_file = f'geom_qm9_weighted_processed_{self.num_conformers}confs.pt'
         self.atom_types = {'H': 0, 'C': 1, 'N': 2, 'O': 3, 'F': 4}
         self.symbols = {'H': 1, 'C': 6, 'N': 7, 'O': 8, 'F': 9}
         self.normalize = normalize
         self.device = device
         self.transform = transform
         self.return_types: list = return_types
-        self.num_conformers = num_conformers
 
 
         # load the data and get normalization values
@@ -731,18 +732,35 @@ class GEOMqm9_weighted(Dataset):
                     targets['poplowestpct'].append(mol_dict['poplowestpct'])
                     targets['temperature'].append(mol_dict['temperature'])
                     targets['uniqueconfs'].append(mol_dict['uniqueconfs'])
-                    conformers = [torch.tensor(conformer['rd_mol'].GetConformer().GetPositions(), dtype=torch.float) for
-                                  conformer in conformers[:10]]
-                    boltzmannweight = [torch.tensor(conformer['boltzmannweight'], dtype=torch.float) for
-                                  conformer in mol_dict['conformers'][:10]]
+
+                    boltzmannweight = [conformer['boltzmannweight'] for
+                                  conformer in mol_dict['conformers']]
+                    boltzmannweight_sorted = sorted(boltzmannweight, reverse=True)
+                    length = min(10, len(boltzmannweight))
+                    top_index = [boltzmannweight.index(boltzmannweight_sorted[i]) for i in range(length)]
+
+                    conformers = [torch.tensor(conformers[i]['rd_mol'].GetConformer().GetPositions(), dtype=torch.float) for
+                                  i in top_index]
+                    boltzmannweight = [w for w in boltzmannweight_sorted[:10]]
+                    # boltzmannweight = [torch.tensor(w, dtype=torch.float32) for w in boltzmannweight_sorted[:10]]
+                    # boltzmannweight = [torch.tensor(conformer['boltzmannweight'], dtype=torch.float) for
+                    #               conformer in mol_dict['conformers'][:10]]
                     if len(conformers) < 10:  # if there are less than 10 conformers we add the first one a few times
                         conformers.extend([conformers[0]] * (10 - len(conformers)))
                     if len(boltzmannweight) < 10:
-                        boltzmannweight.extend([torch.tensor(0.0)] * (10 - len(boltzmannweight)))
-                    if boltzmannweight[0] == 1:
-                        boltzmannweight[0],boltzmannweight[1],boltzmannweight[2] = torch.tensor(1/3), torch.tensor(1/3), torch.tensor(1/3)
-                    elif boltzmannweight[2] == 0:
-                        boltzmannweight[0], boltzmannweight[2] = boltzmannweight[0]/2, boltzmannweight[0]/2 
+                        # boltzmannweight.extend([torch.tensor(0.0)] * (10 - len(boltzmannweight)))
+                        boltzmannweight.extend([0.0] * (10 - len(boltzmannweight)))
+
+                    if 0 in boltzmannweight[:self.num_conformers]:
+                        zero_start = boltzmannweight.index(0)
+                        num_to_pad = self.num_conformers - zero_start
+                        value_to_pad = boltzmannweight[0] / (num_to_pad + 1)
+                        for i in range(zero_start, self.num_conformers):
+                            boltzmannweight[i] = value_to_pad
+                        boltzmannweight[0] = value_to_pad
+
+                    boltzmannweight = [torch.tensor(w, dtype=torch.float32) for w in boltzmannweight]
+                    
                     
 
                     all_edge_features.append(edge_features)

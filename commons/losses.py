@@ -301,7 +301,6 @@ class NTXentMultiplePositives_2D3D_WeightVersion(_Loss):
             z1_abs = z1.norm(dim=1).detach()
             z2_abs = z2.norm(dim=2)
             sim_matrix_z2 = sim_matrix_z2 / torch.einsum('i,ju->iju', z1_abs, z2_abs)
-
         sim_matrix_z1 = torch.exp(sim_matrix_z1 / self.tau)  # [batch_size, batch_size, num_conformers]
         sim_matrix_z2 = torch.exp(sim_matrix_z2 / self.tau)  # [batch_size, batch_size, num_conformers]
         sim_matrix_z2_weighted = sim_matrix_z2 * weights.repeat(batch_size, 1, 1)
@@ -314,10 +313,10 @@ class NTXentMultiplePositives_2D3D_WeightVersion(_Loss):
         sim_matrix_z2_weighted = sim_matrix_z2_weighted.sum(dim=2)  # [batch_size, batch_size]
         pos_sim_z2 = torch.diagonal(sim_matrix_z2_weighted)  # [batch_size]
         loss_z2 = pos_sim_z2 / (sim_matrix_z2_weighted.sum(dim=1) - pos_sim_z2)
-        loss_z2 = torch.clamp(- torch.log(loss_z2), max=16).mean()
+        loss_z2 = - torch.log(loss_z2).mean()
 
-        # loss = loss_z1 + loss_z2
-        loss = loss_z2
+        loss = loss_z1 + loss_z2
+        # loss = loss_z2
 
         if self.variance_reg > 0:
             loss += self.variance_reg * (std_loss(z1) + std_loss(z2))
