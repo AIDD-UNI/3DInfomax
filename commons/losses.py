@@ -385,13 +385,15 @@ class NTXentMultiplePositives_Pure3D_WeightVersion(_Loss):
         if self.uniformity_reg > 0:
             loss += self.uniformity_reg * uniformity_loss(z1, z2)
 
-        loss_3Dcontrast = self.conformation_contrast(z2, weights=weights)  # z2 need to be normalized
+        if weights:  # asymmetric contrast
+            loss_3Dcontrast = self.conformation_contrast_asym(z2, weights=weights)  # z2 need to be normalized
+        else:
+            loss_3Dcontrast = self.conformation_contrast(z2)  # z2 need to be normalized
 
         return loss + loss_3Dcontrast
 
-    def conformation_contrast(self, z2, weights=None):
+    def conformation_contrast(self, z2):
         """
-        :param weight: [bsz, n_conformers], each conformer has a weight
         :param z2: [bsz, n_conf, n_dim]
         :return:
         """
@@ -418,10 +420,52 @@ class NTXentMultiplePositives_Pure3D_WeightVersion(_Loss):
 
         return loss
 
+    def conformation_contrast_asym(self, z2, weights=None):
+        """
+        :param weights: [bsz, n_conformers], each conformer has a weight
+        :param z2: [bsz, n_conf, n_dim]
+        :return:
+        """
+        bsz, n_conf, n_dim = z2.size()
 
+        # Todo, need to translate the weight into pair-wise weights between different conformation
+        # For example, w12 denotes the weight of conformation **1** in the contrast between 1 and 2
+        w12, w21, w13, w31, w23, w32 = torch.zeros(bsz)
+        # Attention: representations need to be normalized like the following way. please add if-else according to the used situation.
+        # z2 = F.normalize(z2, dim=2)
 
+        z2 = torch.concat(torch.unbind(z2, dim=1), dim=0)  # [n_conf * bsz, n_dim]
 
+        sim_matrix = torch.div(torch.matmul(z2, z2.T.detach()), self.tau)  # [n_conf * bsz, n_conf * bsz]
 
+        sim_max, _ = torch.max(sim_matrix, dim=1, keepdim=True)  # sim_max: [n_conf * bsz, 1]
+        sim_matrix = sim_matrix - sim_max.detach()
+
+        sim_matrix = torch.exp(sim_matrix) * (1 - torch.eye(sim_matrix.size(0)).cuda())  # mask elements on major diagonal
+
+        # todo try both
+        # asym only for pos pair
+        pos1 = w12 * torch.diagonal(sim_matrix[0:bsz, bsz:2*bsz]) + w13 * torch.diagonal(sim_matrix[0:bsz, 2*bsz:3*bsz])
+        pos2 = w21 * torch.diagonal(sim_matrix[bsz:2*bsz, 0:bsz]) + w23 * torch.diagonal(sim_matrix[bsz:2*bsz, 2*bsz:3*bsz])
+        pos3 = w31 * torch.diagonal(sim_matrix[2*bsz:3*bsz, 0:bsz]) + w32 * torch.diagonal(sim_matrix[2*bsz:3*bsz, bsz:2*bsz])
+        pos = torch.concat([pos1, pos2, pos3])  # [n_conf * bsz]
+        logits = pos / sim_matrix.sum(dim=1)
+        loss = - torch.log(logits).mean()
+        # asym for both pos pair
+        sim_matrix[0:bsz, bsz:2 * bsz] *= w12
+        sim_matrix[0:bsz, 2 * bsz:3 * bsz] *= w13
+        sim_matrix[bsz:2 * bsz, 0:bsz] *= w21
+        sim_matrix[bsz:2 * bsz, 2 * bsz:3 * bsz] *= w23
+        sim_matrix[2 * bsz:3 * bsz, 0:bsz] *= w31
+        sim_matrix[2 * bsz:3 * bsz, bsz:2 * bsz] *= w32
+        pos1 = torch.diagonal(sim_matrix[0:bsz, bsz:2*bsz]) + torch.diagonal(sim_matrix[0:bsz, 2 * bsz:3 * bsz])
+        pos2 = torch.diagonal(sim_matrix[bsz:2*bsz, 0:bsz]) + torch.diagonal(sim_matrix[bsz:2*bsz, 2*bsz:3*bsz])
+        pos3 = torch.diagonal(sim_matrix[2*bsz:3*bsz, 0:bsz]) + torch.diagonal(sim_matrix[2*bsz:3*bsz, bsz:2*bsz])
+        pos = torch.concat([pos1, pos2, pos3])  # [n_conf * bsz]
+        logits = pos / sim_matrix.sum(dim=1)
+        loss = - torch.log(logits).mean()
+
+        return loss
 
 
 class KLDivergenceMultiplePositives(_Loss):
