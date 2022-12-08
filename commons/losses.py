@@ -385,7 +385,7 @@ class NTXentMultiplePositives_Pure3D_WeightVersion(_Loss):
         if self.uniformity_reg > 0:
             loss += self.uniformity_reg * uniformity_loss(z1, z2)
 
-        loss_3Dcontrast = self.conformation_contrast(z2)  # z2 need to be normalized
+        loss_3Dcontrast = self.conformation_contrast(z2)  # z2 need to be normalized!
 
         return loss + loss_3Dcontrast
 
