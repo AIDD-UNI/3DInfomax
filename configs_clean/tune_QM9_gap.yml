@@ -1,8 +1,8 @@
-experiment_name: 'homo_tune_geom_qm9'
+experiment_name: 'gap_tune_geom_qm9_weighted'
 
 # pretrain_checkpoint: runs/PNA_qmugs_NTXentMultiplePositives_620000_123_25-08_09-19-52/best_checkpoint_35epochs.pt
-# pretrain_checkpoint: runs/PNA_geom_qm9_weighted_NTXentMultiplePositives_140000_42_28-11_04-52-19/best_checkpoint.pt
-pretrain_checkpoint: runs/PNA_geom_qm9_NTXentMultiplePositives_140000_42_28-11_04-59-19/best_checkpoint.pt
+pretrain_checkpoint: runs/PNA_geom_qm9_weighted_NTXentMultiplePositives_140000_42_28-11_04-52-19/best_checkpoint.pt
+# pretrain_checkpoint: runs/PNA_geom_qm9_NTXentMultiplePositives_140000_42_28-11_04-59-19/best_checkpoint.pt
 transfer_layers:
   - gnn
 exclude_from_transfer:
@@ -15,7 +15,7 @@ patience: 30
 loss_func: L1Loss
 num_train: 50000
 targets:
-  - homo
+  - gap
 required_data:
   - dgl_graph
   - targets

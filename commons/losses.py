@@ -278,7 +278,7 @@ class NTXentMultiplePositives_2D3D_WeightVersion(_Loss):
         self.covariance_reg = covariance_reg
         self.conformer_variance_reg = conformer_variance_reg
 
-    def forward(self, z1, z2, weight, **kwargs) -> Tensor:
+    def forward(self, z1, z2, weights, **kwargs) -> Tensor:
         """
         :param z1: bsz, metric dim
         :param z2: bsz, n_conformers, metric dim
@@ -301,10 +301,9 @@ class NTXentMultiplePositives_2D3D_WeightVersion(_Loss):
             z1_abs = z1.norm(dim=1).detach()
             z2_abs = z2.norm(dim=2)
             sim_matrix_z2 = sim_matrix_z2 / torch.einsum('i,ju->iju', z1_abs, z2_abs)
-
         sim_matrix_z1 = torch.exp(sim_matrix_z1 / self.tau)  # [batch_size, batch_size, num_conformers]
         sim_matrix_z2 = torch.exp(sim_matrix_z2 / self.tau)  # [batch_size, batch_size, num_conformers]
-        sim_matrix_z2_weighted = sim_matrix_z2 * weight.repeat(batch_size, 1, 1)
+        sim_matrix_z2_weighted = sim_matrix_z2 * weights.repeat(batch_size, 1, 1)
 
         sim_matrix_z1 = sim_matrix_z1.sum(dim=2)  # [batch_size, batch_size]
         pos_sim_z1 = torch.diagonal(sim_matrix_z1)  # [batch_size]
@@ -317,6 +316,7 @@ class NTXentMultiplePositives_2D3D_WeightVersion(_Loss):
         loss_z2 = - torch.log(loss_z2).mean()
 
         loss = loss_z1 + loss_z2
+        # loss = loss_z2
 
         if self.variance_reg > 0:
             loss += self.variance_reg * (std_loss(z1) + std_loss(z2))
@@ -350,7 +350,7 @@ class NTXentMultiplePositives_Pure3D_WeightVersion(_Loss):
         self.covariance_reg = covariance_reg
         self.conformer_variance_reg = conformer_variance_reg
 
-    def forward(self, z1, z2, weight=None, **kwargs) -> Tensor:
+    def forward(self, z1, z2, weights=None, **kwargs) -> Tensor:
         """
         :param z1: batchsize, metric dim
         :param z2: batchsize*num_conformers, metric dim
@@ -385,13 +385,12 @@ class NTXentMultiplePositives_Pure3D_WeightVersion(_Loss):
         if self.uniformity_reg > 0:
             loss += self.uniformity_reg * uniformity_loss(z1, z2)
 
-        loss_3Dcontrast = self.conformation_contrast(z2)  # z2 need to be normalized!
+        loss_3Dcontrast = self.conformation_contrast(z2, weights=weights)  # z2 need to be normalized
 
         return loss + loss_3Dcontrast
 
-    def conformation_contrast(self, z2, weight=None):
+    def conformation_contrast(self, z2, weights=None):
         """
-
         :param weight: [bsz, n_conformers], each conformer has a weight
         :param z2: [bsz, n_conf, n_dim]
         :return:
@@ -408,7 +407,7 @@ class NTXentMultiplePositives_Pure3D_WeightVersion(_Loss):
         sim_max, _ = torch.max(sim_matrix, dim=1, keepdim=True)  # sim_max: [n_conf * bsz, 1]
         sim_matrix = sim_matrix - sim_max.detach()
 
-        sim_matrix = torch.exp(sim_matrix) * (1 - torch.eye(sim_matrix.size(0)))  # mask elements on major diagonal
+        sim_matrix = torch.exp(sim_matrix) * (1 - torch.eye(sim_matrix.size(0)).cuda())  # mask elements on major diagonal
 
         pos1 = torch.diagonal(sim_matrix[0:bsz, bsz:2*bsz]) + torch.diagonal(sim_matrix[0:bsz, 2*bsz:3*bsz])
         pos2 = torch.diagonal(sim_matrix[bsz:2*bsz, 0:bsz]) + torch.diagonal(sim_matrix[bsz:2*bsz, 2*bsz:3*bsz])

@@ -15,7 +15,7 @@ from tqdm import tqdm
 import torch.nn.functional as F
 from scipy.constants import physical_constants
 
-from commons.spherical_encoding import dist_emb
+# from commons.spherical_encoding import dist_emb
 
 hartree2eV = physical_constants['hartree-electron volt relationship'][0]
 
@@ -25,7 +25,7 @@ class QMugsDataset(Dataset):
     def __init__(self, return_types: list = None, target_tasks: list = None, normalize: bool = True, device='cuda:0',
                  num_conformers: int = 1, **kwargs):
 
-        self.root = '../QMugs'
+        self.root = '/sharefs/healthshare/yuancheng/datasets/QMugs'
         self.processed_file = 'processed.pt'
         self.raw_csv = 'summary.csv'
         self.normalize = normalize

@@ -157,6 +157,11 @@ def conformer_collate(batch: List[Tuple]):
     return [dgl.batch(graphs)], [dgl.batch(conformers)]
 
 
+def conformer_weighted_collate(batch: List[Tuple]):
+    graphs, conformers, weights = map(list, zip(*batch))
+    return [dgl.batch(graphs)], [dgl.batch(conformers), torch.stack(weights, dim=0)]
+
+
 class NoisedCoordinatesCollate(object):
     def __init__(self, std, num_noised):
         self.std = std

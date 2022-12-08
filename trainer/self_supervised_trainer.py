@@ -24,8 +24,13 @@ class SelfSupervisedTrainer(Trainer):
     def forward_pass(self, batch):
         info2d, info3d, *snorm_n = tuple(batch)
         view2d = self.model(*info2d, *snorm_n)  # foward the rest of the batch to the model
-        view3d = self.model3d(*info3d)
-        loss = self.loss_func(view2d, view3d, nodes_per_graph=info2d[0].batch_num_nodes() if isinstance(info2d[0], dgl.DGLGraph) else None)
+        if len(info3d) == 2:
+            graph, weights = info3d
+            view3d = self.model3d(graph)
+        else:
+            graph = info3d
+            view3d = self.model3d(*info3d)    
+        loss = self.loss_func(view2d, view3d, nodes_per_graph=info2d[0].batch_num_nodes() if isinstance(info2d[0], dgl.DGLGraph) else None, weights=weights if len(info3d)==2 else None)
         return loss, view2d, view3d
 
     def evaluate_metrics(self, z2d, z3d, batch=None, val=False) -> Dict[str, float]:
