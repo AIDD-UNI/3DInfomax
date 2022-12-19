@@ -1,8 +1,12 @@
-experiment_name: 'lumo_tune_geom_qm9_wighted'
+experiment_name: 'alpha_tune_geom_qm9_assym1_10confs'
 
 # pretrain_checkpoint: runs/PNA_qmugs_NTXentMultiplePositives_620000_123_25-08_09-19-52/best_checkpoint_35epochs.pt
-pretrain_checkpoint: runs/PNA_geom_qm9_weighted_NTXentMultiplePositives_140000_42_28-11_04-52-19/best_checkpoint.pt
+# pretrain_checkpoint: runs/PNA_geom_qm9_weighted_NTXentMultiplePositives_140000_42_28-11_04-52-19/best_checkpoint.pt
 # pretrain_checkpoint: runs/PNA_geom_qm9_NTXentMultiplePositives_140000_42_28-11_04-59-19/best_checkpoint.pt
+# pretrain_checkpoint: runs/PNA_qm9_NTXent_50000_42_01-12_18-51-45/best_checkpoint.pt
+# pretrain_checkpoint: runs/PNA_geom_qm9_weighted_NTXentMultiplePositives_140000_assym1_3confs_42_06-12_16-15-12/best_checkpoint.pt
+# pretrain_checkpoint: runs/PNA_geom_qm9_weighted_NTXentMultiplePositives_140000_assym1_5confs_42_04-12_13-40-53/best_checkpoint.pt
+pretrain_checkpoint: runs/PNA_geom_qm9_weighted_NTXentMultiplePositives_140000_assym1_10confs_42_06-12_16-36-12/best_checkpoint.pt
 transfer_layers:
   - gnn
 exclude_from_transfer:
@@ -15,7 +19,7 @@ patience: 30
 loss_func: L1Loss
 num_train: 50000
 targets:
-  - lumo
+  - alpha
 required_data:
   - dgl_graph
   - targets

@@ -58,6 +58,8 @@ class Net3D(nn.Module):
         if self.use_node_features:
             graph.ndata['feat'] = self.atom_encoder(graph.ndata['feat'])
         else:
+            if torch.isnan(self.node_embedding).any() == True:
+                print(graph.number_of_nodes())
             graph.ndata['feat'] = self.node_embedding[None, :].expand(graph.number_of_nodes(), -1)
 
         if self.fourier_encodings > 0:

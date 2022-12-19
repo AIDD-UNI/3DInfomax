@@ -282,9 +282,7 @@ class NTXentMultiplePositives_2D3D_WeightVersion(_Loss):
         """
         :param z1: bsz, metric dim
         :param z2: bsz, n_conformers, metric dim
-        :param weight: bsz, n_conformers (each conformer has a weight)
-        GEOM: 1-20
-        QMugs: 3
+        :param weights: bsz, n_conformers (each conformer has a weight)
         """
         batch_size, metric_dim = z1.size()
         z2 = z2.view(batch_size, -1, metric_dim)  # z2: [batch_size, num_conformers, metric_dim]
@@ -354,8 +352,7 @@ class NTXentMultiplePositives_Pure3D_WeightVersion(_Loss):
         """
         :param z1: batchsize, metric dim
         :param z2: batchsize*num_conformers, metric dim
-        GEOM: 1-20
-        QMugs: 3
+        :weights: batchsize, num_conformers
         """
         batch_size, metric_dim = z1.size()
         z2 = z2.view(batch_size, -1, metric_dim)  # z2: [batch_size, num_conformers, metric_dim]
@@ -385,31 +382,39 @@ class NTXentMultiplePositives_Pure3D_WeightVersion(_Loss):
         if self.uniformity_reg > 0:
             loss += self.uniformity_reg * uniformity_loss(z1, z2)
 
-        if weights:  # asymmetric contrast
-            loss_3Dcontrast = self.conformation_contrast_asym(z2, weights=weights)  # z2 need to be normalized
+        z2 = torch.concat(torch.unbind(z2, dim=1), dim=0)    # [n_conf * bsz, n_dim]
+        z2_sim_matrix = torch.einsum('ij,ju->iu', z2, z2.T)    # [n_conf * bsz, n_conf * bsz]
+
+        if self.norm:
+            z2_abs = torch.concat(torch.unbind(z2_abs, dim=1), dim=0)    
+            z2_abs_matrix = torch.einsum('i,j->ij', z2_abs, z2_abs)
+            z2_sim_matrix = z2_sim_matrix / z2_abs_matrix
+
+        z2_sim_matrix = torch.exp(z2_sim_matrix / self.tau)
+
+        if weights != None:  # asymmetric contrast
+            loss_3Dcontrast = self.conformation_contrast_asym(batch_size, z2_sim_matrix, weights=weights)  # z2 need to be normalized
         else:
-            loss_3Dcontrast = self.conformation_contrast(z2)  # z2 need to be normalized
+            loss_3Dcontrast = self.conformation_contrast(batch_size, z2_sim_matrix)  # z2 need to be normalized
 
         return loss + loss_3Dcontrast
 
-    def conformation_contrast(self, z2):
+    def conformation_contrast(self, bsz, sim_matrix):
         """
         :param z2: [bsz, n_conf, n_dim]
         :return:
         """
-        bsz, n_conf, n_dim = z2.size()
+        # bsz, n_conf, n_dim = z2.size()
 
         # Attention: representations need to be normalized like the following way. please add if-else according to the used situation.
         # z2 = F.normalize(z2, dim=2)
 
-        z2 = torch.concat(torch.unbind(z2, dim=1), dim=0)  # [n_conf * bsz, n_dim]
+        # z2 = torch.concat(torch.unbind(z2, dim=1), dim=0)  # [n_conf * bsz, n_dim]
+        # sim_matrix = torch.div(torch.matmul(z2, z2.T.detach()), self.tau)  # [n_conf * bsz, n_conf * bsz]
+        # sim_matrix = torch.exp(sim_matrix) * (1 - torch.eye(sim_matrix.size(0)).cuda())  # mask elements on major diagonal
 
-        sim_matrix = torch.div(torch.matmul(z2, z2.T.detach()), self.tau)  # [n_conf * bsz, n_conf * bsz]
-
-        sim_max, _ = torch.max(sim_matrix, dim=1, keepdim=True)  # sim_max: [n_conf * bsz, 1]
-        sim_matrix = sim_matrix - sim_max.detach()
-
-        sim_matrix = torch.exp(sim_matrix) * (1 - torch.eye(sim_matrix.size(0)).cuda())  # mask elements on major diagonal
+        # sim_max, _ = torch.max(sim_matrix, dim=1, keepdim=True)  # sim_max: [n_conf * bsz, 1]
+        # sim_matrix = sim_matrix - sim_max.detach()
 
         pos1 = torch.diagonal(sim_matrix[0:bsz, bsz:2*bsz]) + torch.diagonal(sim_matrix[0:bsz, 2*bsz:3*bsz])
         pos2 = torch.diagonal(sim_matrix[bsz:2*bsz, 0:bsz]) + torch.diagonal(sim_matrix[bsz:2*bsz, 2*bsz:3*bsz])
@@ -420,28 +425,31 @@ class NTXentMultiplePositives_Pure3D_WeightVersion(_Loss):
 
         return loss
 
-    def conformation_contrast_asym(self, z2, weights=None):
+    def conformation_contrast_asym(self, bsz, sim_matrix, weights=None):
         """
         :param weights: [bsz, n_conformers], each conformer has a weight
         :param z2: [bsz, n_conf, n_dim]
         :return:
         """
-        bsz, n_conf, n_dim = z2.size()
+        # bsz, n_conf, n_dim = z2.size()
 
         # Todo, need to translate the weight into pair-wise weights between different conformation
         # For example, w12 denotes the weight of conformation **1** in the contrast between 1 and 2
-        w12, w21, w13, w31, w23, w32 = torch.zeros(bsz)
+        w12 = weights[:, 0] / (weights[:, 0] + weights[:, 1])
+        w21 = weights[:, 1] / (weights[:, 0] + weights[:, 1])
+        w13 = weights[:, 0] / (weights[:, 0] + weights[:, 2])
+        w31 = weights[:, 2] / (weights[:, 0] + weights[:, 2])
+        w23 = weights[:, 1] / (weights[:, 1] + weights[:, 2])
+        w32 = weights[:, 2] / (weights[:, 1] + weights[:, 2])
         # Attention: representations need to be normalized like the following way. please add if-else according to the used situation.
         # z2 = F.normalize(z2, dim=2)
 
-        z2 = torch.concat(torch.unbind(z2, dim=1), dim=0)  # [n_conf * bsz, n_dim]
+        # z2 = torch.concat(torch.unbind(z2, dim=1), dim=0)  # [n_conf * bsz, n_dim]
+        # sim_matrix = torch.div(torch.matmul(z2, z2.T.detach()), self.tau)  # [n_conf * bsz, n_conf * bsz]
+        # sim_matrix = torch.exp(sim_matrix) * (1 - torch.eye(sim_matrix.size(0)).cuda())  # mask elements on major diagonal
 
-        sim_matrix = torch.div(torch.matmul(z2, z2.T.detach()), self.tau)  # [n_conf * bsz, n_conf * bsz]
-
-        sim_max, _ = torch.max(sim_matrix, dim=1, keepdim=True)  # sim_max: [n_conf * bsz, 1]
-        sim_matrix = sim_matrix - sim_max.detach()
-
-        sim_matrix = torch.exp(sim_matrix) * (1 - torch.eye(sim_matrix.size(0)).cuda())  # mask elements on major diagonal
+        # sim_max, _ = torch.max(sim_matrix, dim=1, keepdim=True)  # sim_max: [n_conf * bsz, 1]
+        # sim_matrix = sim_matrix - sim_max.detach()
 
         # todo try both
         # asym only for pos pair
@@ -451,20 +459,22 @@ class NTXentMultiplePositives_Pure3D_WeightVersion(_Loss):
         pos = torch.concat([pos1, pos2, pos3])  # [n_conf * bsz]
         logits = pos / sim_matrix.sum(dim=1)
         loss = - torch.log(logits).mean()
-        # asym for both pos pair
-        sim_matrix[0:bsz, bsz:2 * bsz] *= w12
-        sim_matrix[0:bsz, 2 * bsz:3 * bsz] *= w13
-        sim_matrix[bsz:2 * bsz, 0:bsz] *= w21
-        sim_matrix[bsz:2 * bsz, 2 * bsz:3 * bsz] *= w23
-        sim_matrix[2 * bsz:3 * bsz, 0:bsz] *= w31
-        sim_matrix[2 * bsz:3 * bsz, bsz:2 * bsz] *= w32
-        pos1 = torch.diagonal(sim_matrix[0:bsz, bsz:2*bsz]) + torch.diagonal(sim_matrix[0:bsz, 2 * bsz:3 * bsz])
-        pos2 = torch.diagonal(sim_matrix[bsz:2*bsz, 0:bsz]) + torch.diagonal(sim_matrix[bsz:2*bsz, 2*bsz:3*bsz])
-        pos3 = torch.diagonal(sim_matrix[2*bsz:3*bsz, 0:bsz]) + torch.diagonal(sim_matrix[2*bsz:3*bsz, bsz:2*bsz])
-        pos = torch.concat([pos1, pos2, pos3])  # [n_conf * bsz]
-        logits = pos / sim_matrix.sum(dim=1)
-        loss = - torch.log(logits).mean()
 
+        # asym for both pos pair
+        # sim_matrix[0:bsz, bsz:2 * bsz] *= w12
+        # sim_matrix[0:bsz, 2 * bsz:3 * bsz] *= w13
+        # sim_matrix[bsz:2 * bsz, 0:bsz] *= w21
+        # sim_matrix[bsz:2 * bsz, 2 * bsz:3 * bsz] *= w23
+        # sim_matrix[2 * bsz:3 * bsz, 0:bsz] *= w31
+        # sim_matrix[2 * bsz:3 * bsz, bsz:2 * bsz] *= w32
+        # pos1 = torch.diagonal(sim_matrix[0:bsz, bsz:2*bsz]) + torch.diagonal(sim_matrix[0:bsz, 2 * bsz:3 * bsz])
+        # pos2 = torch.diagonal(sim_matrix[bsz:2*bsz, 0:bsz]) + torch.diagonal(sim_matrix[bsz:2*bsz, 2*bsz:3*bsz])
+        # pos3 = torch.diagonal(sim_matrix[2*bsz:3*bsz, 0:bsz]) + torch.diagonal(sim_matrix[2*bsz:3*bsz, bsz:2*bsz])
+        # pos = torch.concat([pos1, pos2, pos3])  # [n_conf * bsz]
+        # logits = pos / sim_matrix.sum(dim=1)
+        # loss = - torch.log(logits).mean()
+        if torch.isnan(logits).sum() != 0:
+            print(logits)
         return loss
 
 
